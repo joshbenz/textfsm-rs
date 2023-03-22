@@ -35,9 +35,14 @@ pub enum ValueOption {
 
 #[derive(Debug)]
 pub struct TemplateValue<'a> {
-    name: &'a str,
-    options: Vec<ValueOption>,
-    regex: &'a str,
+    pub name: &'a str,
+    pub options: Option<Vec<ValueOption>>,
+    pub regex: &'a str,
+}
+
+pub struct TemplateState<'a> {
+    pub name: &'a str,
+    pub rules: Vec<&'a str>,
 }
 
 impl FromStr for ValueOption {
@@ -55,80 +60,45 @@ impl FromStr for ValueOption {
     }
 }
 
-pub mod parser {
-    use super::*;
-    use nom::{
-        branch::alt,
-        bytes::complete::{tag, take_till1, take_until},
-        character::complete::{multispace0, multispace1},
-        combinator::{all_consuming, map},
-        multi::{many_till, separated_list0},
-        sequence::tuple,
-        IResult,
-    };
+pub fn parse_template(template: &str) {
+    let mut lines = template.lines();
+    let template_values = parse_value_section(&mut lines);
+}
 
-    // TODO: Doesn't technically follow the spec
-    pub fn parse_value_section(i: &str) -> IResult<&str, Vec<TemplateValue>> {
-        let (remaining, (values, _)) = many_till(
-            //alt((parse_value_line, alt((consume_comment, tag("\n"))))),
-            map(
-                tuple((
-                    alt((take_until("Value"), consume_comment)),
-                    parse_value_line,
-                )),
-                |(_, v)| v,
-            ),
-            tag("\n"),
-        )(i)?;
-        Ok((remaining, values))
-    }
+fn parse_value_section<'a, I>(lines: &mut I) -> Result<Vec<TemplateValue<'a>>, ()>
+where
+    I: Iterator<Item = &'a str>,
+{
+    let mut res = std::vec::Vec::default();
 
-    fn consume_comment(i: &str) -> IResult<&str, &str> {
-        let (remaining, (_, _, _, _)) =
-            tuple((multispace0, tag("#"), take_till1(|c| c == '\n'), tag("\n")))(i)?;
-        Ok((remaining, remaining))
-    }
+    while let Some(l) = lines.next() {
+        let l = l.trim();
+        if !l.starts_with("#") {
+            if l.len() == 0 {
+                break;
+            }
+            let parts: Vec<&str> = l.split(" ").collect();
 
-    fn parse_value_line(i: &str) -> IResult<&str, TemplateValue> {
-        let (remaining, (_, _, flags, _, name, _, regex, _)) = tuple((
-            tag("Value"),
-            multispace1,
-            parse_optional_values,
-            multispace0,
-            take_till1(|c| c == ' '),
-            multispace1,
-            take_till1(|c| c == '\n'),
-            tag("\n"),
-        ))(i)?;
-        Ok((
-            remaining,
-            TemplateValue {
-                name: name.trim(),
-                options: flags,
-                regex: regex.trim(),
-            },
-        ))
-    }
-
-    fn parse_optional_values(i: &str) -> IResult<&str, Vec<ValueOption>> {
-        separated_list0(tag(","), optional_flag)(i)
-    }
-
-    fn optional_flag(i: &str) -> IResult<&str, ValueOption> {
-        let (i, flag) = alt((
-            tag("Filldown"),
-            tag("Key"),
-            tag("Required"),
-            tag("List"),
-            tag("Fillup"),
-        ))(i)?;
-        Ok((i, ValueOption::from_str(flag).unwrap()))
-    }
-
-    pub fn parse_template(i: &str) -> IResult<&str, Vec<TemplateValue>> {
-        match all_consuming(parse_value_section)(i) {
-            Ok((_, v)) => Ok((i, v)),
-            Err(e) => Err(e),
+            // We have optonal fields
+            if parts.len() > 3 {
+                res.push(TemplateValue {
+                    name: parts[2].trim(),
+                    options: Some(
+                        parts[1]
+                            .split(",")
+                            .map(ValueOption::from_str)
+                            .collect::<Result<Vec<_>, _>>()?,
+                    ),
+                    regex: parts[3].trim(),
+                });
+            } else {
+                res.push(TemplateValue {
+                    name: parts[1].trim(),
+                    options: None,
+                    regex: parts[2].trim(),
+                });
+            }
         }
     }
+    Ok(res)
 }
