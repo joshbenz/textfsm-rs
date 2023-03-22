@@ -12,3 +12,5 @@ path = "src/lib.rs"
 name = "mybin"
 path = "src/main.rs"
 [dependencies]
+lazy_static = "1.4.0"
+regex = "1.7.2"
