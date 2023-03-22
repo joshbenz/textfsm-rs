@@ -1,7 +1,14 @@
 // parse the template
+use lazy_static::lazy_static;
+use regex::Regex;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::vec::Vec;
+
+static MATCH_ACTION_STR: &'static str = r"(?P<match>.*)(\s->(?P<action>.*))";
+static LINE_OP_STR: &'static str = r"(?P<ln_op>Continue|Next|Error)";
+static RECORD_STR: &'static str = r"(?P<rec_op>Clear|Clearall|Record|NoRecord)";
+static NEWSTATE_STR: &'static str = r#"(?P<new_state>\w+|\".*\")"#;
 
 #[derive(Debug)]
 pub enum LineAction {
@@ -50,6 +57,37 @@ impl TemplateRule {
         rule_line: &str,
         values: &HashMap<String, TemplateState>,
     ) -> TemplateRule {
+        lazy_static! {
+            static ref LINE_OP_OPT_STR: &'static str = &format!(r"({}(\.{})?)", LINE_OP_STR, RECORD_STR);
+            static ref LINE_AND_RECORD_ACTION_STR: &'static str = &format!(r"^\s+{}(\s+{})?$", LINE_OP_STR, RECORD_STR);
+            static ref LINE_RECORD_OPT_STR: &'static str = &format!(r"^\s+{}(\s+{})?$", RECORD_STR, NEWSTATE_STR);
+            static ref DEFAULT_OP_OPT_NEWSTATE_STR: &'static str = &format!(r"^(\s+{})?$", NEWSTATE_STR);
+
+            // Implicit default is '(regexp) -> Next.NoRecord'
+            static ref MATCH_ACTION: Regex = Regex::new(MATCH_ACTION_STR).unwrap();
+
+            // Line operators.
+            static ref LINE_OP_RE: Regex = Regex::new(LINE_OP_STR).unwrap();
+
+            // Record operators.
+            static ref RECORD_RE: Regex = Regex::new(RECORD_STR).unwrap();
+
+            // Line operator with optional record operator.
+            static ref LINE_OP_OPT_RE: Regex = Regex::new(&LINE_OP_OPT_STR).unwrap();
+
+            // New State or 'Error' string.
+            static ref NEWSTATE_RE: Regex = Regex::new(NEWSTATE_STR).unwrap();
+
+            // Compound operator (line and record) with optional new state.
+            static ref ACTION_RE: Regex = Regex::new(&LINE_AND_RECORD_ACTION_STR).unwrap();
+
+            // Record operator with optional new state.
+            static ref ACTION2_RE: Regex = Regex::new(&LINE_RECORD_OPT_STR).unwrap();
+
+            // Default operators with optional new state.
+            static ref ACTION3_RE: Regex = Regex::new(&DEFAULT_OP_OPT_NEWSTATE_STR).unwrap();
+        }
+
         Self {
             regex: "",
             line_op: (),
