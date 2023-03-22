@@ -55,13 +55,13 @@ pub struct TemplateRule {
 impl TemplateRule {
     fn from_template_line(
         rule_line: &str,
-        values: &HashMap<String, TemplateState>,
-    ) -> TemplateRule {
+        values: &HashMap<String, TemplateValue>,
+    ) -> Result<TemplateRule, ()> {
         lazy_static! {
-            static ref LINE_OP_OPT_STR: &'static str = &format!(r"({}(\.{})?)", LINE_OP_STR, RECORD_STR);
-            static ref LINE_AND_RECORD_ACTION_STR: &'static str = &format!(r"^\s+{}(\s+{})?$", LINE_OP_STR, RECORD_STR);
-            static ref LINE_RECORD_OPT_STR: &'static str = &format!(r"^\s+{}(\s+{})?$", RECORD_STR, NEWSTATE_STR);
-            static ref DEFAULT_OP_OPT_NEWSTATE_STR: &'static str = &format!(r"^(\s+{})?$", NEWSTATE_STR);
+            static ref LINE_OP_OPT_STR: String= format!(r"({}(\.{})?)", LINE_OP_STR, RECORD_STR);
+            static ref LINE_AND_RECORD_ACTION_STR: String= format!(r"^\s+{}(\s+{})?$", LINE_OP_STR, RECORD_STR);
+            static ref LINE_RECORD_OPT_STR: String = format!(r"^\s+{}(\s+{})?$", RECORD_STR, NEWSTATE_STR);
+            static ref DEFAULT_OP_OPT_NEWSTATE_STR: String = format!(r"^(\s+{})?$", NEWSTATE_STR);
 
             // Implicit default is '(regexp) -> Next.NoRecord'
             static ref MATCH_ACTION: Regex = Regex::new(MATCH_ACTION_STR).unwrap();
@@ -88,12 +88,12 @@ impl TemplateRule {
             static ref ACTION3_RE: Regex = Regex::new(&DEFAULT_OP_OPT_NEWSTATE_STR).unwrap();
         }
 
-        Self {
-            regex: "",
-            line_op: (),
-            record_op: (),
-            new_state: (),
+        let rule_line = rule_line.trim();
+        if rule_line.len() == 0 {
+            // TODO err no rule
         }
+
+        Err(())
     }
 }
 
@@ -126,7 +126,7 @@ fn parse_state_section<'a, I>(
 where
     I: Iterator<Item = &'a str>,
 {
-    let mut map = HashMap::default();
+    let mut map: HashMap<String, Vec<Result<TemplateRule, ()>>> = HashMap::default();
 
     while let Some(l) = lines.next() {
         let l_no_spaces = l.trim();
@@ -141,7 +141,6 @@ where
                     || rule_line.starts_with("  ")
                     || rule_line.starts_with("\t")
                 {
-                    let rule_line = rule_line.trim();
                     rules.push(TemplateRule::from_template_line(rule_line, values));
                 }
             }
@@ -163,7 +162,7 @@ where
             }*/
         }
     }
-    Ok(map)
+    Err(())
 }
 
 fn parse_value_section<'a, I>(lines: &mut I) -> Result<HashMap<String, TemplateValue>, ()>
