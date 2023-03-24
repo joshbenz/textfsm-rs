@@ -128,7 +128,7 @@ impl TemplateRule {
         }
 
         let mut the_match = "";
-        let mut regex = "";
+        let mut regex = "".to_string();
         let mut line_op = "";
         let mut record_op = "";
         let mut new_state = "";
@@ -149,10 +149,10 @@ impl TemplateRule {
             None => the_match = rule_line,
         };
 
-        regex = the_match;
         let match_action = match_action.unwrap();
 
         // TODO String interpolate ${VAR} from values
+        regex = interpolate(the_match, values);
 
         let action_re = match match_action.name("action") {
             Some(action) => ACTION_RE
@@ -193,7 +193,35 @@ impl TemplateRule {
     }
 }
 
-//fn interpolate(template: &str, values: HashMap<String, TemplateValue>) -> String {}
+//TODO suppsed to Support $template_value and ${temlpate_value}
+// but only support ${template_value} for now
+fn interpolate(template: &str, values: &HashMap<String, TemplateValue>) -> String {
+    let mut output = String::with_capacity(template.len());
+    let mut last = 0;
+    let template_bytes = template.as_bytes();
+    let mut iter = template_bytes.iter().copied().enumerate();
+
+    while let Some((index, c)) = iter.next() {
+        if c == b'$' {
+            output.push_str(
+                std::str::from_utf8(template_bytes.get(last..index + 1).unwrap()).unwrap(),
+            )
+        }
+
+        while let Some((sub, c)) = iter.next() {
+            if c == b'}' {
+                let field =
+                    std::str::from_utf8(template_bytes.get(index + 1..sub).unwrap()).unwrap();
+                output.push_str(&values.get(field).unwrap().regex);
+
+                last = sub + 1;
+                break;
+            }
+        }
+    }
+
+    output
+}
 
 pub fn parse_template(template: &str) -> Result<(), ()> {
     let mut lines = template.lines();
