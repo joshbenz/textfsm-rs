@@ -20,7 +20,7 @@ impl FromStr for LineAction {
             "Next" => Ok(LineAction::Next),
             "Continue" => Ok(LineAction::Continue),
             "" => Ok(LineAction::Empty),
-            _ => Err(()),
+            _ => panic!("LINE ACTION"),
         }
     }
 }
@@ -44,7 +44,7 @@ impl FromStr for RecordAction {
             "Clear" => Ok(RecordAction::Clear),
             "CLearAll" => Ok(RecordAction::ClearAll),
             "" => Ok(RecordAction::Empty),
-            _ => Err(()),
+            _ => panic!("LINE ACTION"),
         }
     }
 }
@@ -69,7 +69,7 @@ impl FromStr for ValueOption {
             "Required" => Ok(ValueOption::Required),
             "List" => Ok(ValueOption::List),
             "Fillup" => Ok(ValueOption::Fillup),
-            _ => Ok(ValueOption::Invalid),
+            _ => panic!("LINE ACTION"),
         }
     }
 }
@@ -81,11 +81,13 @@ pub struct TemplateValue {
     pub regex: String,
 }
 
+#[derive(Debug)]
 pub struct TemplateState<'a> {
     pub name: &'a str,
     pub rules: Vec<&'a str>,
 }
 
+#[derive(Debug)]
 pub struct TemplateRule {
     pub regex: String,
     pub line_op: LineAction,
@@ -112,7 +114,7 @@ impl TemplateRule {
             static ref OPER_RECORD_RE: Regex = Regex::new(&format!(r"({}(\.{})?)", OPER_RE.as_str(), RECORD_RE.as_str())).unwrap();
 
             // New State or 'Error' string.
-            static ref NEWSTATE_RE: Regex = Regex::new(r#"(?P<new_state>\w+|\".*\")"#).unwrap();
+            static ref NEWSTATE_RE: Regex = Regex::new(r#"(?P<new_state>\w+|".*")"#).unwrap();
 
             // Compound operator (line and record) with optional new state.
             static ref ACTION_RE: Regex = Regex::new(&format!(r#""^\s+{}(\s+{})?$""#, OPER_RECORD_RE.as_str(), NEWSTATE_RE.as_str())).unwrap();
@@ -133,12 +135,15 @@ impl TemplateRule {
         let mut record_op = "";
         let mut new_state = "";
 
+        println!("RULE LINE: {:?}", rule_line);
+
         let rule_line = rule_line.trim();
         if rule_line.len() == 0 {
             // TODO err no rule
         }
 
         let match_action = MATCH_ACTION.captures(rule_line);
+        println!("MATCH AXTION: {:?}", match_action);
         match match_action {
             Some(ref m) => {
                 match m.name("match") {
@@ -149,28 +154,34 @@ impl TemplateRule {
             None => the_match = rule_line,
         };
 
-        let match_action = match_action.unwrap();
-
         // TODO String interpolate ${VAR} from values
-        regex = interpolate(the_match, values);
+        if values.len() > 0 {
+            regex = interpolate(the_match, values);
+            println!("INTRPOLATED: {:?}", regex);
+        } else {
+            regex = the_match.to_owned();
+        }
 
-        let action_re = match match_action.name("action") {
-            Some(action) => ACTION_RE
-                .captures(action.as_str())
-                .or(ACTION2_RE.captures(action.as_str()))
-                .or(ACTION3_RE.captures(action.as_str())),
-            None => None, //TODO Err, no action?
-        };
+        if match_action.is_some() {
+            let match_action = match_action.unwrap();
+            let action_re = match match_action.name("action") {
+                Some(action) => ACTION_RE
+                    .captures(action.as_str())
+                    .or(ACTION2_RE.captures(action.as_str()))
+                    .or(ACTION3_RE.captures(action.as_str())),
+                None => None, //TODO Err, no action?
+            };
 
-        if let Some(action) = action_re {
-            if let Some(m) = action.name("ln_op") {
-                line_op = m.as_str();
-            }
-            if let Some(m) = action.name("rec_op") {
-                record_op = m.as_str();
-            }
-            if let Some(m) = action.name("new_state") {
-                new_state = m.as_str();
+            if let Some(action) = action_re {
+                if let Some(m) = action.name("ln_op") {
+                    line_op = m.as_str();
+                }
+                if let Some(m) = action.name("rec_op") {
+                    record_op = m.as_str();
+                }
+                if let Some(m) = action.name("new_state") {
+                    new_state = m.as_str();
+                }
             }
         }
 
@@ -203,19 +214,20 @@ fn interpolate(template: &str, values: &HashMap<String, TemplateValue>) -> Strin
 
     while let Some((index, c)) = iter.next() {
         if c == b'$' {
-            output.push_str(
-                std::str::from_utf8(template_bytes.get(last..index + 1).unwrap()).unwrap(),
-            )
-        }
+            output.push_str(std::str::from_utf8(template_bytes.get(last..index).unwrap()).unwrap());
+            println!("OUTPUT: {:?}", output);
 
-        while let Some((sub, c)) = iter.next() {
-            if c == b'}' {
-                let field =
-                    std::str::from_utf8(template_bytes.get(index + 1..sub).unwrap()).unwrap();
-                output.push_str(&values.get(field).unwrap().regex);
+            iter.next();
+            while let Some((sub, c)) = iter.next() {
+                if c == b'}' {
+                    let field =
+                        std::str::from_utf8(template_bytes.get(index + 2..sub).unwrap()).unwrap();
+                    println!("FIELD: {:?}", field);
+                    output.push_str(&values.get(field).unwrap().regex);
 
-                last = sub + 1;
-                break;
+                    last = sub + 1;
+                    break;
+                }
             }
         }
     }
@@ -227,13 +239,14 @@ pub fn parse_template(template: &str) -> Result<(), ()> {
     let mut lines = template.lines();
     let template_values = parse_value_section(&mut lines)?;
     let k = parse_state_section(&mut lines, &template_values);
+    println!("STATES: {:?}", k);
     Ok(())
 }
 
 fn parse_state_section<'a, I>(
     lines: &mut I,
     values: &HashMap<String, TemplateValue>,
-) -> Result<HashMap<String, TemplateRule>, ()>
+) -> Result<HashMap<String, Vec<Result<TemplateRule, ()>>>, ()>
 where
     I: Iterator<Item = &'a str>,
 {
@@ -273,7 +286,7 @@ where
             }*/
         }
     }
-    Err(())
+    Ok(map)
 }
 
 fn parse_value_section<'a, I>(lines: &mut I) -> Result<HashMap<String, TemplateValue>, ()>
@@ -289,10 +302,11 @@ where
                 break;
             }
             let parts: Vec<&str> = l.split(" ").collect();
+            println!("PARTS: {:?}", parts);
 
             // TODO syntax Error
-            if parts[0] != "Value " {
-                return Err(());
+            if parts[0] != "Value" {
+                return panic!("VALUE SECTIOMN");
             }
 
             // We have optonal fields
