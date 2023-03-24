@@ -5,15 +5,24 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::vec::Vec;
 
-static MATCH_ACTION_STR: &'static str = r"(?P<match>.*)(\s->(?P<action>.*))";
-static LINE_OP_STR: &'static str = r"(?P<ln_op>Continue|Next|Error)";
-static RECORD_STR: &'static str = r"(?P<rec_op>Clear|Clearall|Record|NoRecord)";
-static NEWSTATE_STR: &'static str = r#"(?P<new_state>\w+|\".*\")"#;
-
 #[derive(Debug)]
 pub enum LineAction {
     Next,
     Continue,
+    Empty,
+}
+
+impl FromStr for LineAction {
+    type Err = ();
+
+    fn from_str(i: &str) -> Result<LineAction, ()> {
+        match i {
+            "Next" => Ok(LineAction::Next),
+            "Continue" => Ok(LineAction::Continue),
+            "" => Ok(LineAction::Empty),
+            _ => Err(()),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -22,6 +31,22 @@ pub enum RecordAction {
     Record,
     Clear,
     ClearAll,
+    Empty,
+}
+
+impl FromStr for RecordAction {
+    type Err = ();
+
+    fn from_str(i: &str) -> Result<RecordAction, ()> {
+        match i {
+            "Record" => Ok(RecordAction::Record),
+            "NoRecord" => Ok(RecordAction::NoRecord),
+            "Clear" => Ok(RecordAction::Clear),
+            "CLearAll" => Ok(RecordAction::ClearAll),
+            "" => Ok(RecordAction::Empty),
+            _ => Err(()),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -31,6 +56,22 @@ pub enum ValueOption {
     Required,
     List,
     Fillup,
+    Invalid,
+}
+
+impl FromStr for ValueOption {
+    type Err = ();
+
+    fn from_str(i: &str) -> Result<ValueOption, ()> {
+        match i {
+            "Filldown" => Ok(ValueOption::Filldown),
+            "Key" => Ok(ValueOption::Key),
+            "Required" => Ok(ValueOption::Required),
+            "List" => Ok(ValueOption::List),
+            "Fillup" => Ok(ValueOption::Fillup),
+            _ => Ok(ValueOption::Invalid),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -58,59 +99,101 @@ impl TemplateRule {
         values: &HashMap<String, TemplateValue>,
     ) -> Result<TemplateRule, ()> {
         lazy_static! {
-            static ref LINE_OP_OPT_STR: String= format!(r"({}(\.{})?)", LINE_OP_STR, RECORD_STR);
-            static ref LINE_AND_RECORD_ACTION_STR: String= format!(r"^\s+{}(\s+{})?$", LINE_OP_STR, RECORD_STR);
-            static ref LINE_RECORD_OPT_STR: String = format!(r"^\s+{}(\s+{})?$", RECORD_STR, NEWSTATE_STR);
-            static ref DEFAULT_OP_OPT_NEWSTATE_STR: String = format!(r"^(\s+{})?$", NEWSTATE_STR);
-
             // Implicit default is '(regexp) -> Next.NoRecord'
-            static ref MATCH_ACTION: Regex = Regex::new(MATCH_ACTION_STR).unwrap();
+            static ref MATCH_ACTION: Regex = Regex::new(r"(?P<match>.*)(\s->(?P<action>.*))").unwrap();
 
             // Line operators.
-            static ref LINE_OP_RE: Regex = Regex::new(LINE_OP_STR).unwrap();
+            static ref OPER_RE: Regex = Regex::new(r"(?P<ln_op>Continue|Next|Error)").unwrap();
 
             // Record operators.
-            static ref RECORD_RE: Regex = Regex::new(RECORD_STR).unwrap();
+            static ref RECORD_RE: Regex = Regex::new(r"(?P<rec_op>Clear|Clearall|Record|NoRecord)").unwrap();
 
             // Line operator with optional record operator.
-            static ref LINE_OP_OPT_RE: Regex = Regex::new(&LINE_OP_OPT_STR).unwrap();
+            static ref OPER_RECORD_RE: Regex = Regex::new(&format!(r"({}(\.{})?)", OPER_RE.as_str(), RECORD_RE.as_str())).unwrap();
 
             // New State or 'Error' string.
-            static ref NEWSTATE_RE: Regex = Regex::new(NEWSTATE_STR).unwrap();
+            static ref NEWSTATE_RE: Regex = Regex::new(r#"(?P<new_state>\w+|\".*\")"#).unwrap();
 
             // Compound operator (line and record) with optional new state.
-            static ref ACTION_RE: Regex = Regex::new(&LINE_AND_RECORD_ACTION_STR).unwrap();
+            static ref ACTION_RE: Regex = Regex::new(&format!(r#""^\s+{}(\s+{})?$""#, OPER_RECORD_RE.as_str(), NEWSTATE_RE.as_str())).unwrap();
 
             // Record operator with optional new state.
-            static ref ACTION2_RE: Regex = Regex::new(&LINE_RECORD_OPT_STR).unwrap();
+            static ref ACTION2_RE: Regex = Regex::new(&format!(r#"^\s+{}(\s+{})?$"#, RECORD_RE.as_str(), NEWSTATE_RE.as_str())).unwrap();
 
             // Default operators with optional new state.
-            static ref ACTION3_RE: Regex = Regex::new(&DEFAULT_OP_OPT_NEWSTATE_STR).unwrap();
+            static ref ACTION3_RE: Regex = Regex::new(&format!(r#"^(\s+{})?$"#, NEWSTATE_RE.as_str())).unwrap();
+
+            // Used for Error
+            static ref ERROR_RE: Regex = Regex::new(r#"\w+"#).unwrap();
         }
+
+        let mut the_match = "";
+        let mut regex = "";
+        let mut line_op = "";
+        let mut record_op = "";
+        let mut new_state = "";
 
         let rule_line = rule_line.trim();
         if rule_line.len() == 0 {
             // TODO err no rule
         }
 
-        Err(())
-    }
-}
+        let match_action = MATCH_ACTION.captures(rule_line);
+        match match_action {
+            Some(ref m) => {
+                match m.name("match") {
+                    Some(group) => the_match = group.as_str(),
+                    None => {} //TODO Err?
+                }
+            }
+            None => the_match = rule_line,
+        };
 
-impl FromStr for ValueOption {
-    type Err = ();
+        regex = the_match;
+        let match_action = match_action.unwrap();
 
-    fn from_str(i: &str) -> Result<ValueOption, ()> {
-        match i {
-            "Filldown" => Ok(ValueOption::Filldown),
-            "Key" => Ok(ValueOption::Key),
-            "Required" => Ok(ValueOption::Required),
-            "List" => Ok(ValueOption::List),
-            "Fillup" => Ok(ValueOption::Fillup),
-            _ => Err(()),
+        // TODO String interpolate ${VAR} from values
+
+        let action_re = match match_action.name("action") {
+            Some(action) => ACTION_RE
+                .captures(action.as_str())
+                .or(ACTION2_RE.captures(action.as_str()))
+                .or(ACTION3_RE.captures(action.as_str())),
+            None => None, //TODO Err, no action?
+        };
+
+        if let Some(action) = action_re {
+            if let Some(m) = action.name("ln_op") {
+                line_op = m.as_str();
+            }
+            if let Some(m) = action.name("rec_op") {
+                record_op = m.as_str();
+            }
+            if let Some(m) = action.name("new_state") {
+                new_state = m.as_str();
+            }
         }
+
+        if line_op == "Continue" && new_state.len() > 0 {
+            // TDOD ERROR
+        }
+
+        if line_op != "Error" && new_state.len() > 0 {
+            if ERROR_RE.is_match(new_state) {
+                // TODO ERROR
+            }
+        }
+
+        Ok(TemplateRule {
+            regex: regex.to_string(),
+            line_op: LineAction::from_str(line_op).unwrap(),
+            record_op: RecordAction::from_str(record_op).unwrap(),
+            new_state: new_state.to_string(),
+        })
     }
 }
+
+//fn interpolate(template: &str, values: HashMap<String, TemplateValue>) -> String {}
 
 pub fn parse_template(template: &str) -> Result<(), ()> {
     let mut lines = template.lines();
